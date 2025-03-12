@@ -9,6 +9,7 @@ pip install lark --upgrade
 # Funcionamiento
 El programa puede leer entradas directamente desde la terminal o desde un archivo.
 
+```
 Uso: python lex.py [-f <archivo>] [--help]
 
 Opciones:
@@ -16,5 +17,5 @@ Opciones:
   --help          Muestra este mensaje de ayuda.
 
 Si no se proporciona un archivo, el programa pedirá entrada manual.
-
+```
 
