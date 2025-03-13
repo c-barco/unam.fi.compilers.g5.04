@@ -4,7 +4,9 @@
 #Leer las cadenas desde un archivo
 def read_from_file(filename):
     with open(filename, "r", encoding="utf-8") as file:
-        return file.read()
+        reader = file.read()
+    file.close()
+    return reader
 
 
 #Leer las cadenas desde la terminal
