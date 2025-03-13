@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 int main() {
-    int *ptr = (int*) malloc(5 * sizeof(int));
+    int ****ptr = (int*) malloc(5 * sizeof(int));
 
     if (ptr == NULL) {
         printf("Error al asignar memoria.\n");
