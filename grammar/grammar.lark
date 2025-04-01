@@ -17,6 +17,9 @@ DATATYPE.2: "int" | "float" | "char" | "double" | "void" | "short" | "long" | "s
 //  Estructuras de control
 CONTROL_STRUCTURE.2: "if" | "else" | "switch" | "case" | "default" | "goto" | "break" | "continue"
 
+//NULL
+NULL_TOKEN.2: "NULL"
+
 //  Bucles
 LOOP.2: "while" | "for" | "do"                                            
 
@@ -78,8 +81,11 @@ POINTER_IDENTIFIER: POINTER_OPERATOR+ IDENTIFIER
 
 ADDRESS_IDENTIFIER: ADDRESS_OPERATOR+ IDENTIFIER
 
+ERROR_TOKEN: /[^a-zA-Z0-9_+\-*<>=&|!^~()\[\]{};,"' \t\r\n]/
+
 statement: PREPROCESSOR | DATATYPE | CONTROL_STRUCTURE | LOOP | FUNCTION 
          | MEMORY | TYPE_MODIFIER | STRUCTURE | POINTER_IDENTIFIER | ADDRESS_IDENTIFIER
          | IDENTIFIER | ARITHMETIC_OPERATOR | COMPARISON_OPERATOR 
          | LOGICAL_OPERATOR | BITWISE_OPERATOR | ASSIGNMENT_OPERATOR 
-         | INCREMENT_OPERATOR | PUNCTUATION | CONSTANT | STRING | CHAR | TYPE_CAST
+         | INCREMENT_OPERATOR | PUNCTUATION | CONSTANT | STRING | CHAR | TYPE_CAST 
+         |ERROR_TOKEN | NULL_TOKEN
