@@ -1,56 +1,41 @@
 from lark import Transformer, Token
 
 class AST(Transformer):
-    def program(self, items):
-     
+    def program(self, items): 
         return ("program", items)
 
     def var_declaration(self, items):
-        nombre_tok = items[0]
-        if len(items) == 1:
-
-            return ("var_decl", nombre_tok.value, None)
-        else:
-            expr_node = items[-1]
-            return ("var_decl", nombre_tok.value, expr_node)
+        return ("var_decl", items)
+        
 
     def assign(self, items):
-        nombre_tok = items[0]
-        op_tok     = items[1]
-        expr_node  = items[2]
-        return ("assign", nombre_tok.value, op_tok.value, expr_node)
+        return ("assign", items)
 
     def expr_statement(self, items):
-        return ("expr_stmt", items[0])
+        return ("expr_stmt", items)
 
     def if_statement(self, items):
-        cond      = items[0]
-        then_stmt = items[1]
-        else_part = items[2] if len(items) == 3 else None
-        return ("if", cond, then_stmt, else_part)
+        
+        return ("if", items)
 
     def block(self, items):
         return ("block", items)
 
     def logical_op(self, items):
-        left, op_tok, right = items
-        return ("logical", op_tok.value, left, right)
+
+        return ("logical", items)
 
     def comparison_op(self, items):
-        left, op_tok, right = items
-        return ("compare", op_tok.value, left, right)
+        return ("compare", items)
 
     def arithmetic_op(self, items):
-        left, op_tok, right = items
-        return ("arith", op_tok.value, left, right)
+        return ("arith", items)
 
     def unary_op(self, items):
-        op_tok = items[0]
-        expr   = items[1]
-        return ("unary", op_tok.value, expr)
+        return ("unary", items)
 
     def number(self, tok):
-        text = tok[0]
+        text = tok[0].value
         if "." in text:
             return ("const", float(text))
         else:
@@ -68,9 +53,8 @@ class AST(Transformer):
         return ("var", tok[0].value)
 
     def func_call(self, items):
-        name = items[0].value
-        args = items[1:] if len(items) > 1 else []
-        return ("call", name, args)
+
+        return ("call", items)
 
     def parentheses(self, items):
         return items[0]
