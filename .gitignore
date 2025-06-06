@@ -1,0 +1,7 @@
+#Archivos de ambiente virtual
+#Para sebs
+
+venv/
+
+#Archivos pycache
+__pycache__/
