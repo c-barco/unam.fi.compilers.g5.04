@@ -1,6 +1,6 @@
 class SemanticAnalyzer:
     def __init__(self):
-        self.symbol_table = {}  # nombre -> tipo (por ahora sólo verificamos existencia)
+        self.symbol_table = {}  # nombre -> tipo (por ahora solo verifica existencia)
         self.errors = []
 
     def analyze(self, ast):
@@ -9,52 +9,63 @@ class SemanticAnalyzer:
         return self.errors
 
     def visit(self, node):
-        nodetype = node[0]
+        if not isinstance(node, tuple) or len(node) != 2:
+            self.errors.append(f"Error: nodo inválido {node}")
+            return
+
+        nodetype, children = node
+
         if nodetype == "var_decl":
-            self.visit_var_decl(node)
+            self.visit_var_decl(children)
         elif nodetype == "assign":
-            self.visit_assign(node)
-        elif nodetype == "expr_statement":
-            self.visit(node[1])  # es una expresión
-        elif nodetype == "if_statement":
-            self.visit_if(node)
+            self.visit_assign(children)
+        elif nodetype == "expr_stmt" or nodetype == "expr_statement":
+            self.visit(children[0])
+        elif nodetype == "if":
+            self.visit_if(children)
         elif nodetype == "block":
-            for stmt in node[1]:
+            for stmt in children:
                 self.visit(stmt)
-        elif nodetype in ("arithmetic_op", "logical_op", "comparison_op"):
-            self.visit(node[2])
-            self.visit(node[3])
-        elif nodetype == "unary_op":
-            self.visit(node[2])
-        elif nodetype == "variable":
-            varname = node[1]
+        elif nodetype in ("arith", "logical", "compare"):
+            self.visit(children[0])
+            self.visit(children[1])
+        elif nodetype == "unary":
+            self.visit(children[1])
+        elif nodetype == "var":
+            varname = children
             if varname not in self.symbol_table:
                 self.errors.append(f"Error: variable '{varname}' no declarada.")
-        elif nodetype == "func_call":
-            for arg in node[3] or []:
+        elif nodetype == "call":
+            for arg in children[1:] if len(children) > 1 else []:
                 self.visit(arg)
-        elif nodetype in ("number", "string", "char"):
-            pass  # literales, no necesitan verificación
+        elif nodetype in ("const", "string", "char"):
+            pass  # Literales, no necesitan validación
         else:
             self.errors.append(f"Error: nodo no reconocido '{nodetype}'")
 
-    def visit_var_decl(self, node):
-        _, name, value = node
+    def visit_var_decl(self, children):
+        name = children[0]
+        value = children[1] if len(children) > 1 else None
+
         if name in self.symbol_table:
             self.errors.append(f"Error: variable '{name}' ya declarada.")
         else:
-            self.symbol_table[name] = "any"  # por ahora no usamos tipos fuertes
+            self.symbol_table[name] = "any"
             if value:
                 self.visit(value)
 
-    def visit_assign(self, node):
-        _, name, value = node
+    def visit_assign(self, children):
+        name = children[0]
+        value = children[1]
         if name not in self.symbol_table:
             self.errors.append(f"Error: variable '{name}' no declarada antes de asignar.")
         self.visit(value)
 
-    def visit_if(self, node):
-        _, cond, then_stmt, else_stmt = node
+    def visit_if(self, children):
+        cond = children[0]
+        then_stmt = children[1]
+        else_stmt = children[2] if len(children) > 2 else None
+
         self.visit(cond)
         self.visit(then_stmt)
         if else_stmt:
