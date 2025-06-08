@@ -1,4 +1,5 @@
 from lark import Lark, Transformer, Tree, Token
+from collections import OrderedDict
 
 # ------------ CARGA DE LA GRAMÁTICA ------------
 with open("grammar.lark", "r") as f:
@@ -11,7 +12,7 @@ parser = Lark(grammar, parser="lalr")
 class ensamblador(Transformer):
     def __init__(self):
         self.code = []
-        self.vars = set()
+        self.vars = OrderedDict()
         self.label_count = 0
 
     def unique_label(self, base):
@@ -26,9 +27,12 @@ class ensamblador(Transformer):
 
     def var_declaration(self, items):
         name = str(items[0])
-        self.vars.add(name)
+        self.vars[name] = 0  # ✅ Corrección aquí
         if len(items) == 2:
             self.visit_expr(items[1])
+            self.code.append(f"mov [{name}], eax")
+        else:
+            self.code.append(f"mov eax, 0")
             self.code.append(f"mov [{name}], eax")
         return ""
 
@@ -58,6 +62,7 @@ class ensamblador(Transformer):
 
         self.visit_expr(condition)
         self.code.append("cmp eax, 0")
+
         if else_stmt:
             self.code.append(f"je {else_label}")
         else:
@@ -74,7 +79,6 @@ class ensamblador(Transformer):
 
         self.code.append(f"{end_label}:")
         return ""
-
 
     def arithmetic_op(self, items):
         left, op, right = items
@@ -159,8 +163,6 @@ class ensamblador(Transformer):
                 self.number([expr])
             elif expr.type == "IDENTIFIER":
                 self.variable([expr])
-     
-
 
     def get_output(self):
         header = [f"{v} dd 0" for v in self.vars]
