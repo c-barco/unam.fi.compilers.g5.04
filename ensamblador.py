@@ -27,20 +27,24 @@ class ensamblador(Transformer):
 
     def var_declaration(self, items):
         name = str(items[0])
-        self.vars[name] = 0  # ✅ Corrección aquí
+        self.vars[name] = 0 
         if len(items) == 2:
             self.visit_expr(items[1])
             self.code.append(f"mov [{name}], eax")
         else:
-            self.code.append(f"mov eax, 0")
+            
             self.code.append(f"mov [{name}], eax")
         return ""
 
     def assign(self, items):
         name = str(items[0])
-        self.visit_expr(items[1])
+        op = str(items[1])
+        if op != '=':
+            raise NotImplementedError(f"Operador {op} no implementado")
+        self.visit_expr(items[2])
         self.code.append(f"mov [{name}], eax")
         return ""
+
 
     def expr_statement(self, items):
         self.visit_expr(items[0])
@@ -157,12 +161,16 @@ class ensamblador(Transformer):
 
     def visit_expr(self, expr):
         if isinstance(expr, Tree):
-            getattr(self, expr.data)(expr.children)
+            return getattr(self, expr.data)(expr.children)
         elif isinstance(expr, Token):
             if expr.type == "NUMBER":
-                self.number([expr])
+                return self.number([expr])
             elif expr.type == "IDENTIFIER":
-                self.variable([expr])
+                return self.variable([expr])
+        elif isinstance(expr, list):
+            for e in expr:
+                self.visit_expr(e)
+
 
     def get_output(self):
         header = [f"{v} dd 0" for v in self.vars]
