@@ -9,6 +9,8 @@ class SemanticAnalyzer:
         return self.errors
 
     def visit(self, node):
+        if isinstance(node, str):
+            return 
         if not isinstance(node, tuple) or len(node) != 2:
             self.errors.append(f"Error: nodo inválido {node}")
             return
@@ -70,3 +72,5 @@ class SemanticAnalyzer:
         self.visit(then_stmt)
         if else_stmt:
             self.visit(else_stmt)
+    
+    

@@ -5,3 +5,5 @@ venv/
 
 #Archivos pycache
 __pycache__/
+
+*.txt
