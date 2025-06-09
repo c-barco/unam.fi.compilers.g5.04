@@ -4,6 +4,8 @@ from lark import Lark, exceptions
 from reader import AST
 from semantic import SemanticAnalyzer
 from ensamblador import ensamblador
+import subprocess
+
 
 class CompiladorGUI(tk.Tk):
     def __init__(self):
@@ -23,7 +25,7 @@ class CompiladorGUI(tk.Tk):
         try:
             with open("grammar.lark", "r", encoding="utf-8") as f:
                 grammar = f.read()
-            self.parser = Lark(grammar, parser="lalr", transformer=AST(), start='start')
+            self.parser = Lark(grammar, parser="lalr", transformer=AST())
             self.raw_parser = Lark(grammar, parser="lalr", start='start')  # sin transformer para ensamblador
         except FileNotFoundError:
             messagebox.showerror("Error", "Archivo 'grammar.lark' no encontrado.")
@@ -115,23 +117,25 @@ class CompiladorGUI(tk.Tk):
                 for err in errores:
                     self.consola.insert(tk.END, f"{err}\n")
                 return
-
-            arbol = self.raw_parser.parse(codigo)
+            arbolparser = self.raw_parser.parse(codigo)
+            arbol = self.parser.parse(codigo)
+            self.consola.insert(tk.END, "Árbol de Parseo (Pretty):\n")
+            self.consola.insert(tk.END, arbolparser.pretty())
             generador = ensamblador()
-            generador.transform(arbol)
-            salida = generador.get_output()
+            codigo_asm = generador.transform(arbol)
+            self.consola.insert(tk.END, "Código ensamblador\n")
+            self.consola.insert(tk.END,str(codigo_asm))
 
-            self.consola.insert(tk.END, "AST:\n")
-            self.consola.insert(tk.END, f"{ast}\n\n")
-            self.consola.insert(tk.END, "Código Ensamblador:\n")
-            self.consola.insert(tk.END, salida)
 
         except exceptions.UnexpectedCharacters as e:
             self.consola.insert(tk.END, f"Error léxico:\n{e}")
         except exceptions.UnexpectedInput as e:
             self.consola.insert(tk.END, f"Error sintáctico:\n{e}")
+        except subprocess.CalledProcessError as e:
+            self.consola.insert(tk.END, f"Error al compilar ensamblador:\n{e}")
         except Exception as e:
             self.consola.insert(tk.END, f"Error general:\n{e}")
+
 
     def ver_parse_tree(self):
         codigo = self.editor_texto.get("1.0", tk.END).strip()
@@ -149,12 +153,11 @@ class CompiladorGUI(tk.Tk):
         self.consola.delete("1.0", tk.END)
 
         try:
-            arbol = self.raw_parser.parse(codigo)
+            arbol = self.parser.parse(codigo)
             generador = ensamblador()
-            generador.transform(arbol)
-            salida = generador.get_output()
+            codigo_asm = generador.transform(arbol)
             self.consola.insert(tk.END, "Código Ensamblador:\n")
-            self.consola.insert(tk.END, salida)
+            self.consola.insert(tk.END,str(codigo_asm))
         except Exception as e:
             self.consola.insert(tk.END, f"Error al generar ensamblador:\n{e}")
 

@@ -1,203 +1,198 @@
+from llvmlite import ir, binding
 from lark import Lark, Transformer, Tree, Token
-from collections import OrderedDict
+from reader import AST
+from semantic import SemanticAnalyzer
 
-# ------------ CARGA DE LA GRAMÁTICA ------------
+
 with open("grammar.lark", "r") as f:
     grammar = f.read()
 
-parser = Lark(grammar, parser="lalr")
+parser = Lark(grammar, parser="lalr", transformer=AST())
 
-
-# ------------ GENERADOR DE CÓDIGO X86 ------------
-class ensamblador(Transformer):
+class ensamblador:
     def __init__(self):
-        self.code = []
-        self.vars = OrderedDict()
-        self.label_count = 0
+        self.module = ir.Module(name="module")
+        self.builder = None
+        self.func = None
+        self.variables = {}
+        self.int32 = ir.IntType(32)
 
-    def unique_label(self, base):
-        self.label_count += 1
-        return f"{base}_{self.label_count}"
+    def transform(self, ast):
+        # Crear función main
+        func_type = ir.FunctionType(ir.VoidType(), [])
+        self.func = ir.Function(self.module, func_type, name="main")
+        block = self.func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
 
-    def program(self, items):
-        for item in items:
-            if isinstance(item, Tree):
-                self.transform(item)
-        return ""
+        # El AST es: ('program', [lista de statements])
+        for statement in ast[1]:
+            if statement[0] == 'var_decl':
+                self.handle_var_decl(statement[1])
+            elif statement[0] == 'assign':
+                self.handle_assign(statement[1])
+            elif statement[0] == 'if':
+                self.handle_if(statement[1])
+            else:
+                raise NotImplementedError(f"Statement {statement[0]} no implementado")
 
-    def var_declaration(self, items):
-        name = str(items[0])
-        self.vars[name] = 0 
-        if len(items) == 2:
-            self.visit_expr(items[1])
-            self.code.append(f"mov [{name}], eax")
+        self.builder.ret_void()
+        return self.module
+
+    def handle_var_decl(self, parts):
+        identifier = None
+        value_node = None
+        for part in parts:
+            if hasattr(part, 'type') and part.type == 'IDENTIFIER':
+                identifier = part.value
+            if isinstance(part, tuple) and part[0] == 'const':
+                value_node = part
+        if identifier is None:
+            raise ValueError("Declaración sin identificador")
+        if value_node is None:
+            raise ValueError("Declaración sin valor asignado")
+
+        ptr = self.builder.alloca(self.int32, name=identifier)
+        const_val = ir.Constant(self.int32, value_node[1])
+        self.builder.store(const_val, ptr)
+        self.variables[identifier] = ptr
+
+    def handle_assign(self, parts):
+        var_name = None
+        expr_node = None
+        for part in parts:
+            if hasattr(part, 'type') and part.type == 'IDENTIFIER':
+                var_name = part.value
+            elif isinstance(part, tuple):
+                expr_node = part
+        if var_name is None or expr_node is None:
+            raise ValueError("Asignación mal formada")
+
+        val = self.eval_expr(expr_node)
+        ptr = self.variables.get(var_name)
+        if ptr is None:
+            raise ValueError(f"Variable no declarada: {var_name}")
+        self.builder.store(val, ptr)
+
+    def handle_if(self, parts):
+        # Esperamos: [Token('LPAR', '('), compare_node, Token('RPAR', ')'), then_block, else_block?]
+        # Encontrar nodo compare y bloques
+        compare_node = None
+        then_block = None
+        else_block = None
+        for part in parts:
+            if isinstance(part, tuple) and part[0] == 'compare':
+                compare_node = part
+            elif isinstance(part, tuple) and part[0] == 'block':
+                if then_block is None:
+                    then_block = part
+                else:
+                    else_block = part
+
+        if compare_node is None or then_block is None:
+            raise ValueError("If mal formado")
+
+        cond_val = self.eval_compare(compare_node)
+
+        func = self.func
+        then_bb = func.append_basic_block(name="then")
+        else_bb = func.append_basic_block(name="else") if else_block else None
+        merge_bb = func.append_basic_block(name="merge")
+
+        if else_bb:
+            self.builder.cbranch(cond_val, then_bb, else_bb)
         else:
-            
-            self.code.append(f"mov [{name}], eax")
-        return ""
+            self.builder.cbranch(cond_val, then_bb, merge_bb)
 
-    def assign(self, items):
-        name = str(items[0])
-        op = str(items[1])
-        if op != '=':
-            raise NotImplementedError(f"Operador {op} no implementado")
-        self.visit_expr(items[2])
-        self.code.append(f"mov [{name}], eax")
-        return ""
+        # THEN
+        self.builder.position_at_start(then_bb)
+        self.handle_block(then_block[1])
+        self.builder.branch(merge_bb)
 
+        # ELSE
+        if else_bb:
+            self.builder.position_at_start(else_bb)
+            self.handle_block(else_block[1])
+            self.builder.branch(merge_bb)
 
-    def expr_statement(self, items):
-        self.visit_expr(items[0])
-        return ""
+        self.builder.position_at_start(merge_bb)
 
-    def block(self, items):
-        for stmt in items:
-            if isinstance(stmt, Tree):
-                self.transform(stmt)
-        return ""
+    def handle_block(self, statements):
+        for stmt in statements:
+            if isinstance(stmt, tuple) and stmt[0] == 'assign':
+                self.handle_assign(stmt[1])
+            # Puedes añadir más casos si hay más tipos de statements en bloques
 
-    def if_statement(self, items):
-        condition = items[0]
-        then_stmt = items[1]
-        else_stmt = items[2] if len(items) > 2 else None
+    def eval_compare(self, compare_node):
+        # compare_node: ('compare', [left, op_token, right])
+        left = compare_node[1][0]
+        op_token = compare_node[1][1]
+        right = compare_node[1][2]
 
-        else_label = self.unique_label("else")
-        end_label = self.unique_label("endif")
+        left_val = self.eval_expr(left)
+        right_val = self.eval_expr(right)
 
-        self.visit_expr(condition)
-        self.code.append("cmp eax, 0")
-
-        if else_stmt:
-            self.code.append(f"je {else_label}")
-        else:
-            self.code.append(f"je {end_label}")
-
-        if isinstance(then_stmt, Tree):
-            self.transform(then_stmt)
-
-        if else_stmt:
-            self.code.append(f"jmp {end_label}")
-            self.code.append(f"{else_label}:")
-            if isinstance(else_stmt, Tree):
-                self.transform(else_stmt)
-
-        self.code.append(f"{end_label}:")
-        return ""
-
-    def arithmetic_op(self, items):
-        left, op, right = items
-        self.visit_expr(left)
-        self.code.append("push eax")
-        self.visit_expr(right)
-        self.code.append("mov ebx, eax")
-        self.code.append("pop eax")
-
-        op_map = {'+': 'add', '-': 'sub', '*': 'imul', '/': 'idiv'}
-        op_instr = op_map[str(op)]
-
-        if op_instr == 'idiv':
-            self.code.append("cdq")
-            self.code.append("idiv ebx")
-        else:
-            self.code.append(f"{op_instr} eax, ebx")
-        return ""
-
-    def comparison_op(self, items):
-        left, op, right = items
-        self.visit_expr(left)
-        self.code.append("push eax")
-        self.visit_expr(right)
-        self.code.append("mov ebx, eax")
-        self.code.append("pop eax")
-        self.code.append("cmp eax, ebx")
-
-        true_label = self.unique_label("true")
-        end_label = self.unique_label("endcmp")
-
-        jmp_map = {
-            '==': 'je', '!=': 'jne',
-            '<': 'jl', '<=': 'jle',
-            '>': 'jg', '>=': 'jge'
+        op_map = {
+            '>': '>',
+            '<': '<',
+            '>=': '>=',
+            '<=': '<=',
+            '==': '==',
+            '!=': '!='
         }
+        op_str = op_token.value
+        if op_str not in op_map:
+            raise ValueError(f"Operador de comparación no soportado: {op_str}")
 
-        self.code.append(f"{jmp_map[str(op)]} {true_label}")
-        self.code.append("mov eax, 0")
-        self.code.append(f"jmp {end_label}")
-        self.code.append(f"{true_label}:")
-        self.code.append("mov eax, 1")
-        self.code.append(f"{end_label}:")
-        return ""
+        return self.builder.icmp_signed(op_str, left_val, right_val, name="cmptmp")
 
-    def unary_op(self, items):
-        op = str(items[0])
-        self.visit_expr(items[1])
-        if op == '-':
-            self.code.append("neg eax")
-        elif op == '!':
-            false_label = self.unique_label("false")
-            end_label = self.unique_label("endnot")
-            self.code.append("cmp eax, 0")
-            self.code.append(f"je {false_label}")
-            self.code.append("mov eax, 0")
-            self.code.append(f"jmp {end_label}")
-            self.code.append(f"{false_label}:")
-            self.code.append("mov eax, 1")
-            self.code.append(f"{end_label}:")
-        return ""
+    def eval_expr(self, expr):
+        # expr puede ser ('const', val), ('var', name), ('arith', [left, op, right])
+        if isinstance(expr, tuple):
+            tag = expr[0]
+            if tag == 'const':
+                return ir.Constant(self.int32, expr[1])
+            elif tag == 'var':
+                var_name = expr[1]
+                ptr = self.variables.get(var_name)
+                if ptr is None:
+                    raise ValueError(f"Variable no declarada: {var_name}")
+                return self.builder.load(ptr, name=var_name+"_val")
+            elif tag == 'arith':
+                left = expr[1][0]
+                op_token = expr[1][1]
+                right = expr[1][2]
 
-    def parentheses(self, items):
-        self.visit_expr(items[0])
-        return ""
-
-    def number(self, items):
-        value = str(items[0])
-        self.code.append(f"mov eax, {value}")
-        return ""
-
-    def variable(self, items):
-        name = str(items[0])
-        self.code.append(f"mov eax, [{name}]")
-        return ""
-
-    def visit_expr(self, expr):
-        if isinstance(expr, Tree):
-            return getattr(self, expr.data)(expr.children)
+                left_val = self.eval_expr(left)
+                right_val = self.eval_expr(right)
+                op = op_token.value
+                if op == '+':
+                    return self.builder.add(left_val, right_val, name="addtmp")
+                elif op == '-':
+                    return self.builder.sub(left_val, right_val, name="subtmp")
+                elif op == '*':
+                    return self.builder.mul(left_val, right_val, name="multmp")
+                elif op == '/':
+                    return self.builder.sdiv(left_val, right_val, name="divtmp")
+                else:
+                    raise ValueError(f"Operador aritmético no soportado: {op}")
+            else:
+                raise ValueError(f"Expresión no soportada: {tag}")
         elif isinstance(expr, Token):
-            if expr.type == "NUMBER":
-                return self.number([expr])
-            elif expr.type == "IDENTIFIER":
-                return self.variable([expr])
-        elif isinstance(expr, list):
-            for e in expr:
-                self.visit_expr(e)
+            if expr.type == 'IDENTIFIER':
+                ptr = self.variables.get(expr.value)
+                if ptr is None:
+                    raise ValueError(f"Variable no declarada: {expr.value}")
+                return self.builder.load(ptr, name=expr.value+"_val")
+            else:
+                # Podría ser constante numérica como token NUMERO (depende de gramática)
+                try:
+                    val = int(expr.value)
+                    return ir.Constant(self.int32, val)
+                except:
+                    raise ValueError(f"Token no soportado en expresión: {expr}")
+        else:
+            raise ValueError(f"Tipo de expresión no reconocido: {expr}")
 
 
-    def get_output(self):
-        header = [f"{v} dd 0" for v in self.vars]
-        return (
-            "section .data\n"
-            + "\n".join(header)
-            + "\n\nsection .text\n"
-            + "global _start\n_start:\n"
-            + "\n".join(self.code)
-            + "\nmov eax, 1\nmov ebx, 0\nint 0x80"
-        )
 
 
-# ------------ DEMO DE USO ------------
-code = """
-var x = 5;
-var y = 10;
-if (x < y) {
-    x = x + 1;
-    x = x + 2;
-} else {
-    x = x - 1;
-    x = x - 2;
-}
-"""
-
-ast = parser.parse(code)
-gen = ensamblador()
-gen.transform(ast)
-print(gen.get_output())
